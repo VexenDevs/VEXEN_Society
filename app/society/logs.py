@@ -486,27 +486,36 @@ class SocietyLogService:
             with suppress(asyncio.CancelledError):
                 await task
 
+    @staticmethod
+    def _error_text(exc: BaseException) -> str:
+        message = str(exc).strip()
+        return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
     async def _run(self) -> None:
         await self.bot.wait_until_ready()
-        await self._ensure_schema()
         log.info("Sistema de logs Discord de VEXEN Society iniciado.")
-        try:
-            while not self._stop.is_set():
+        backoff = self.POLL_SECONDS
+        while not self._stop.is_set():
+            try:
                 guild_id = self.settings.guild_id
                 if guild_id is None:
+                    backoff = self.POLL_SECONDS
                     await asyncio.sleep(self.POLL_SECONDS)
                     continue
                 guild = self.bot.get_guild(int(guild_id))
                 if guild is None:
+                    backoff = self.POLL_SECONDS
                     await asyncio.sleep(self.POLL_SECONDS)
                     continue
 
                 configured = await self._sync_external_channel_change(guild)
                 if not configured:
+                    backoff = self.POLL_SECONDS
                     await asyncio.sleep(self.POLL_SECONDS)
                     continue
                 channel = guild.get_channel(configured)
                 if not isinstance(channel, discord.TextChannel):
+                    backoff = self.POLL_SECONDS
                     await asyncio.sleep(self.POLL_SECONDS)
                     continue
 
@@ -544,9 +553,18 @@ class SocietyLogService:
                     else:
                         await self._set_cursor(guild.id, int(row["log_id"]))
 
+                backoff = self.POLL_SECONDS
                 await asyncio.sleep(self.POLL_SECONDS)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            log.exception("El sistema de logs Discord se detuvo inesperadamente.")
-            raise
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                error_text = self._error_text(exc)[:500]
+                log.exception(
+                    "Sistema de logs Discord perdió temporalmente acceso a un recurso; "
+                    "reintentará en %ss. Error: %s",
+                    backoff,
+                    error_text,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(max(self.POLL_SECONDS, backoff * 2), 30)
+

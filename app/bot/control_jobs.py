@@ -98,6 +98,7 @@ class DashboardControlWorker:
                 community_name TEXT NOT NULL,
                 platforms JSONB NOT NULL DEFAULT '{{}}'::jsonb,
                 selected_channel_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+                requested_channels JSONB NOT NULL DEFAULT '[]'::jsonb,
                 extra_channel_request TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
                 applicant_message TEXT,
@@ -109,6 +110,10 @@ class DashboardControlWorker:
                 CHECK (status IN ('draft','pending','review','needs_info','approved','creating','active','rejected','cancelled','error'))
             )
         ''')
+        await self.db.execute(
+            f'ALTER TABLE "{s}".society_applications '
+            "ADD COLUMN IF NOT EXISTS requested_channels JSONB NOT NULL DEFAULT '[]'::jsonb"
+        )
         # La tabla de heartbeat normalmente la crea el Dashboard. La creamos
         # también aquí para que el puente pueda funcionar de forma autónoma.
         await self.db.execute(f'''
@@ -216,6 +221,42 @@ class DashboardControlWorker:
                 return {}
         return {}
 
+    @staticmethod
+    def _requested_channels(payload: dict) -> list[dict[str, str]]:
+        raw = payload.get("requested_channels") or []
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                raw = []
+        if not isinstance(raw, list):
+            raise ValueError("La lista de canales adicionales es inválida.")
+        if len(raw) > 10:
+            raise ValueError("La solicitud excede el máximo de 10 canales adicionales.")
+        allowed = {"TXT", "STAFF-TXT", "VOICE", "STAFF-VOICE"}
+        result: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for item in raw:
+            if not isinstance(item, dict):
+                raise ValueError("La definición de un canal adicional es inválida.")
+            channel_type = str(item.get("type") or "").strip().upper()
+            name = str(item.get("name") or "").strip()
+            if channel_type not in allowed:
+                raise ValueError("Tipo de canal adicional no permitido.")
+            if not 1 <= len(name) <= 100:
+                raise ValueError("Nombre de canal adicional inválido.")
+            key = (channel_type, name.casefold())
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append({"type": channel_type, "name": name})
+        return result
+
+    @staticmethod
+    def _error_text(exc: BaseException) -> str:
+        message = str(exc).strip()
+        return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
     async def _audit(
         self,
         action: str,
@@ -250,11 +291,13 @@ class DashboardControlWorker:
         actor_id = int(job["actor_id"])
         display_name = str(payload.get("display_name") or "").strip()
         community_name = str(payload.get("community_name") or "").strip()
+        requested_channels = self._requested_channels(payload)
         if not user_id or not display_name or not community_name:
             raise ValueError("Faltan usuario, nombre público o comunidad.")
 
         existing = await get_associate(self.db, self.schema, guild.id, user_id)
         inserted = False
+        space_created = False
         if existing is None:
             duplicate = await self.db.fetchval(
                 f'''SELECT EXISTS(SELECT 1 FROM "{self.schema}".associates
@@ -282,9 +325,27 @@ class DashboardControlWorker:
 
         try:
             created = await self.bot.space_service.create_space(guild, user_id, actor_id)
+            space_created = True
             pruned = await self._apply_initial_channel_selection(guild, user_id, payload)
+            custom_channels: list[dict[str, Any]] = []
+            for item in requested_channels:
+                channel = await self.bot.space_service.create_custom_channel(
+                    guild,
+                    user_id,
+                    actor_id,
+                    item["type"],
+                    item["name"],
+                )
+                custom_channels.append(
+                    {"channel_id": channel.id, "type": item["type"], "name": channel.name}
+                )
         except Exception:
-            if inserted:
+            if space_created:
+                # Si falla un canal solicitado después de crear la estructura,
+                # revertimos la Society completa para no dejar Discord y DB a medias.
+                with suppress(Exception):
+                    await self.bot.space_service.delete_space(guild, user_id, actor_id)
+            elif inserted:
                 with suppress(Exception):
                     await self.db.execute(
                         f'DELETE FROM "{self.schema}".associates WHERE guild_id=$1 AND user_id=$2',
@@ -307,6 +368,7 @@ class DashboardControlWorker:
             "category_id": created["category"].id,
             "channels_created": len(created["channels"]),
             "channels_omitted": pruned,
+            "requested_channels_created": custom_channels,
             "welcome_published": bool(created.get("welcome_message")),
             "onboarding_state": created.get("onboarding_state"),
         }
@@ -572,12 +634,18 @@ class DashboardControlWorker:
 
     async def _run(self) -> None:
         await self.bot.wait_until_ready()
-        await self._ensure_tables()
-        await self._heartbeat(status="starting")
-        log.info("Puente Dashboard → VEXEN Society Bot iniciado.")
+        initialized = False
         cycles = 0
-        try:
-            while not self._stop.is_set():
+        backoff = self.POLL_SECONDS
+        while not self._stop.is_set():
+            try:
+                if not initialized:
+                    await self._ensure_tables()
+                    await self._heartbeat(status="starting")
+                    log.info("Puente Dashboard → VEXEN Society Bot iniciado.")
+                    initialized = True
+                    cycles = 0
+
                 cycles += 1
                 if cycles == 1 or cycles % 150 == 0:
                     await self._recover_stale_jobs()
@@ -585,23 +653,46 @@ class DashboardControlWorker:
                 if job is None:
                     if cycles % 15 == 0:
                         await self._heartbeat(status="online", metadata={"cycles": cycles})
+                    backoff = self.POLL_SECONDS
                     await asyncio.sleep(self.POLL_SECONDS)
                     continue
+
                 try:
                     result = await self._execute(job)
                     await self._finish(int(job["job_id"]), result=result)
                     await self._heartbeat(
                         status="online",
-                        metadata={"cycles": cycles, "last_job_id": int(job["job_id"]), "last_action": str(job["action"])},
+                        metadata={
+                            "cycles": cycles,
+                            "last_job_id": int(job["job_id"]),
+                            "last_action": str(job["action"]),
+                        },
                     )
                     log.info("Job Society #%s (%s) completado.", job["job_id"], job["action"])
+                except asyncio.CancelledError:
+                    raise
                 except Exception as exc:
                     await self._fail(job, exc)
+                backoff = self.POLL_SECONDS
                 await asyncio.sleep(0)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            with suppress(Exception):
-                await self._heartbeat(status="degraded", metadata={"fatal_error": str(exc)[:500]})
-            log.exception("El puente de control del Dashboard se detuvo inesperadamente.")
-            raise
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                error_text = self._error_text(exc)[:500]
+                log.exception(
+                    "Puente Dashboard → Bot perdió temporalmente acceso a un recurso; "
+                    "reintentará en %ss. Error: %s",
+                    backoff,
+                    error_text,
+                )
+                with suppress(Exception):
+                    await self._heartbeat(
+                        status="degraded",
+                        metadata={
+                            "recoverable_error": error_text,
+                            "retry_in_seconds": backoff,
+                        },
+                    )
+                await asyncio.sleep(backoff)
+                backoff = min(max(self.POLL_SECONDS, backoff * 2), 30)
+

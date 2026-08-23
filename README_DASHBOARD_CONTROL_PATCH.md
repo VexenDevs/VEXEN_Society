@@ -40,3 +40,7 @@ No requiere variables nuevas. Usa `DATABASE_URL`, `GUILD_ID`, `OWNER_ID` y `SOCI
 El Dashboard solo crea trabajos en PostgreSQL. Las operaciones de Discord se ejecutan dentro del bot oficial con `discord.py`, por lo que no se crea un segundo Gateway bot ni se expone el token al navegador.
 
 El sistema de logs nunca debe bloquear la operación principal: si el canal fue eliminado, el bot perdió permisos o Discord responde con un error temporal, el fallo se registra en los logs técnicos y la acción principal permanece independiente.
+
+## v1.9.1
+
+El puente y el sistema de logs usan reintentos con backoff ante fallos transitorios de PostgreSQL. No debería ser necesario reiniciar manualmente el bot después de un timeout temporal. El job de creación también acepta `requested_channels` con los tipos `TXT`, `STAFF-TXT`, `VOICE` y `STAFF-VOICE`.
