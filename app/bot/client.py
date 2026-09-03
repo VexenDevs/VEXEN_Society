@@ -16,7 +16,7 @@ from app.society.announcements import (
 )
 from app.society.associates import SocietyCog
 from app.society.logs import SocietyLogService
-from app.society.spaces import SpaceService
+from app.society.space_service_v110 import VexenSpaceService
 from app.society.templates import ensure_default_template
 from app.society.welcome import restore_persistent_role_views
 from database import create_pool
@@ -46,7 +46,7 @@ class VexenSocietyBot(commands.Bot):
 
         self.settings = settings
         self.db: asyncpg.Pool | None = None
-        self.space_service = SpaceService(self, settings)
+        self.space_service = VexenSpaceService(self, settings)
         self.verification_integration: VerificationIntegration | None = None
         self.onboarding_integration: OnboardingIntegration | None = None
         self.control_worker = DashboardControlWorker(self, settings)

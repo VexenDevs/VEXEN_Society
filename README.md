@@ -1,41 +1,54 @@
 # VEXEN Society
 
-Bot privado para administrar espacios de comunidades/asociados dentro de VEXEN.
+Bot privado para administrar espacios de comunidades y creadores dentro de VEXEN.
 
 ## Incluye
 
-- PostgreSQL aislado por schema.
+- PostgreSQL aislado por schema para Society.
 - Registro de asociados.
 - Creación automática de:
-  - rol de comunidad
-  - `INT-Comunidad`
-  - `Staff-Comunidad`
-  - categoría
-  - canales desde plantilla TXT
+  - rol de comunidad;
+  - `INT-Comunidad`;
+  - `Staff-Comunidad`;
+  - categoría;
+  - canales desde plantilla.
 - Permisos limitados a la categoría:
-  - asociado principal: permisos completos de canal/categoría
-  - staff Society: permisos de staff dentro de esa Society
-  - comunidad: acceso normal
-- Plantillas TXT:
-  - validación
-  - preview
-  - historial
-  - descarga
-  - sincronización de faltantes
+  - asociado principal con permisos completos de canal/categoría;
+  - Staff Society con permisos locales dentro de esa Society;
+  - comunidad con acceso normal.
+- Plantillas con validación, vista previa, historial, descarga y sincronización.
 - Administración interactiva de canales.
-- Eliminación con confirmación escrita exacta estilo Railway.
-- Integración opcional con `vexmod_temp_roles.role_transfers`.
-- Retransmisión de anuncios Society mediante webhook con nombre/avatar del autor original.
+- Eliminación con confirmación escrita exacta.
+- Integración con `vexen_verification.role_transfers`.
+- Integración incremental con Discord Onboarding.
+- Retransmisión de anuncios mediante webhook con nombre/avatar del autor original.
 - Bienvenida automática configurable con botón para obtener el rol de comunidad.
 - Posicionamiento automático/configurable de categorías Society.
 - Jerarquía garantizada: `Staff-Comunidad` > `Comunidad` > `INT-Comunidad`.
-- Auditoría.
-- Roles administrativos adicionales.
+- Auditoría y roles administrativos adicionales.
 
 ## Plantilla
 
+Las variables de categoría son opcionales y se reconocen por nombre:
+
 ```text
-[CATEGORY] 👥 { VXS } { asociado } { comunidad }
+VXS
+asociado
+comunidad
+```
+
+La plantilla decide cómo decorarlas:
+
+```text
+[CATEGORY] 👥 VXS | asociado | comunidad
+[CATEGORY] 👥 [VXS] · { asociado } · 【comunidad】
+[CATEGORY] 👥 SOCIETY CENTRAL
+```
+
+Ejemplo completo:
+
+```text
+[CATEGORY] 👥 VXS | asociado | comunidad
 
 [ANN] 📢┃anuncios
 [TXT] 💬┃general
@@ -44,12 +57,7 @@ Bot privado para administrar espacios de comunidades/asociados dentro de VEXEN.
 [STAFF-VOICE] 🔐 ┃ Staff
 ```
 
-Las variables deben conservar los espacios:
-
-```text
-{ asociado }
-{ comunidad }
-```
+Las plantillas históricas con `{ asociado }` y `{ comunidad }` continúan siendo compatibles.
 
 ## Desarrollo local
 
@@ -66,20 +74,14 @@ ALLOWED_ROLES=
 DATABASE_URL=
 SOCIETY_DB_SCHEMA=vexen_society_dev
 
-VERIFICATION_INTEGRATION=disabled
-VEXMOD_ROLES_SCHEMA=vexmod_temp_roles
+VEXEN_VERIFICATION_INTEGRATION=postgres
+VEXEN_VERIFICATION_SCHEMA=vexen_verification
 
 SYNC_COMMANDS=true
 LOG_LEVEL=INFO
 ```
 
-Cuando quieras probar la integración real con VEXMOD_TEMP:
-
-```env
-VERIFICATION_INTEGRATION=postgres
-```
-
-Ambos bots deben utilizar el mismo PostgreSQL.
+VEXEN Society y VEXEN CONTROL deben utilizar el mismo PostgreSQL para compartir `vexen_verification.role_transfers`.
 
 ## Intents de Discord
 
@@ -137,7 +139,7 @@ o:
 
 ## Posición de categorías
 
-Society coloca cada nueva categoría después de la última que contenga `{ VXS }`.
+Society coloca cada nueva categoría después de la última Society registrada en PostgreSQL, sin depender del texto o la decoración de la plantilla.
 Si todavía no existe ninguna, usa la categoría configurada con:
 
 ```text
@@ -189,31 +191,26 @@ Los mensajes publicados en el canal `[ANN]` de una Society se replican al canal 
 5. El bot borra por IDs guardados, no buscando por nombres.
 6. Si hay errores, conserva el registro con estado `error`.
 
-## VEXMOD_TEMP
+## VEXEN Verification
 
-Society solo toca:
+Al crear una Society se añade una sola transferencia:
 
 ```text
-VEXMOD_ROLES_SCHEMA.role_transfers
+INT-Comunidad → Comunidad
 ```
 
-No crea ni modifica tablas de FAQ, tickets, Crew u otros módulos.
+Contrato:
+
+```text
+vexen_verification.role_transfers
+onboarding_role_id → verified_role_id
+```
+
+No se reemplazan las transferencias existentes. Al eliminar la Society se retira únicamente su mapping. Society no crea ni modifica tablas de FAQ, tickets, Crew u otros módulos.
 
 ## Incorporación de Discord
 
-La transferencia:
-
-```text
-INT-Comunidad -> Comunidad
-```
-
-sí queda preparada.
-
-La modificación automática de la pregunta/opciones del Onboarding de Discord no está
-incluida todavía porque el repositorio VEXMOD_TEMP revisado no contiene el código que
-administra esa pregunta. Esa pieza debe conectarse cuando identifiquemos el propietario
-actual de la incorporación.
-
+La pregunta de asociados debe configurarse una vez desde el Dashboard. Después, cada alta añade únicamente su opción vinculada a `INT-Comunidad` y conserva todas las opciones existentes. Si Discord no confirma esa operación, el alta se revierte para no dejar una Society incompleta. Al eliminar una Society se retira únicamente esa opción.
 
 ## Botón de comunidad en anuncios globales
 

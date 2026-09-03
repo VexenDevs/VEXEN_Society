@@ -26,10 +26,7 @@ DEFAULT_TEMPLATE_PATH = (
 )
 
 
-async def ensure_default_template(
-    db,
-    settings: Settings,
-) -> None:
+async def ensure_default_template(db, settings: Settings) -> None:
     if settings.guild_id is None:
         return
 
@@ -38,13 +35,11 @@ async def ensure_default_template(
         settings.society_db_schema,
         settings.guild_id,
     )
-
     if current is not None:
         return
 
     raw = DEFAULT_TEMPLATE_PATH.read_text(encoding="utf-8")
     parsed = parse_template(raw)
-
     await create_template(
         db,
         settings.society_db_schema,
@@ -60,10 +55,8 @@ async def ensure_default_template(
 
 def template_from_row(row) -> ParsedTemplate:
     data = row["parsed_template"]
-
     if isinstance(data, str):
         data = json.loads(data)
-
     return parsed_template_from_dict(dict(data))
 
 
@@ -79,22 +72,21 @@ def preview_embed(
         ),
         color=discord.Color.blurple(),
     )
-
     lines = [
         f"`{channel.channel_type}` • {channel.name}"
         for channel in parsed.channels
     ]
-
     embed.add_field(
         name="Estructura",
         value="\n".join(lines)[:1024],
         inline=False,
     )
-
     embed.set_footer(
-        text="Variables oficiales: { asociado } y { comunidad }"
+        text=(
+            "Variables opcionales: VXS, asociado y comunidad. "
+            "La plantilla decide su decoración."
+        )
     )
-
     return embed
 
 
@@ -107,13 +99,11 @@ async def save_uploaded_template(
     name: str,
 ) -> tuple[int, int]:
     parsed = parse_template(raw)
-
     version = await get_next_template_version(
         db,
         settings.society_db_schema,
         guild_id,
     )
-
     template_id = await create_template(
         db,
         settings.society_db_schema,
@@ -125,7 +115,6 @@ async def save_uploaded_template(
         actor_id,
         activate=True,
     )
-
     await add_audit_log(
         db,
         settings.society_db_schema,
@@ -138,7 +127,6 @@ async def save_uploaded_template(
             "name": name,
         },
     )
-
     return template_id, version
 
 
@@ -152,17 +140,12 @@ async def active_template_file(
         settings.society_db_schema,
         guild_id,
     )
-
     if row is None:
         raise RuntimeError("No existe plantilla activa.")
 
-    payload = io.BytesIO(
-        row["raw_template"].encode("utf-8")
-    )
-
+    payload = io.BytesIO(row["raw_template"].encode("utf-8"))
     file = discord.File(
         payload,
         filename=f"vexen_society_template_v{row['version']}.txt",
     )
-
     return file, row

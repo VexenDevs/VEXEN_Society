@@ -1,7 +1,8 @@
 # VEXEN SOCIETY
 # Plantilla general
+# Variables opcionales: VXS, asociado, comunidad
 
-[CATEGORY] 👥 { VXS } { asociado } { comunidad }
+[CATEGORY] 👥 VXS | asociado | comunidad
 
 [ANN] 📢┃anuncios
 [TXT] 💬┃general

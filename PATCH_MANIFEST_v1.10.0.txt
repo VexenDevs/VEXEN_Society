@@ -1,0 +1,18 @@
+REEMPLAZA
+- .env.example
+- README.md
+- app/bot/client.py
+- app/config/settings.py
+- app/integrations/verification.py
+- app/society/template_parser.py
+- app/society/templates.py
+- templates/society_default.txt
+- tests/integrations/test_verification.py
+- tests/society/test_template_parser.py
+
+AGREGA
+- app/society/space_service_v110.py
+- tests/integrations/test_vexen_verification_contract_v110.py
+- CHANGELOG_v1.10.0.md
+- README_UPDATE_v1.10.0.md
+- PATCH_MANIFEST_v1.10.0.txt

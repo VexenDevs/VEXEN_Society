@@ -4,7 +4,7 @@ import logging
 import re
 from functools import lru_cache
 
-from pydantic import ValidationInfo, field_validator
+from pydantic import AliasChoices, Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 log = logging.getLogger("vexen_society.settings")
@@ -20,8 +20,25 @@ class Settings(BaseSettings):
     database_url: str = ""
     society_db_schema: str = "vexen_society"
 
-    verification_integration: str = "disabled"
-    vexmod_roles_schema: str = "vexmod_temp_roles"
+    # Nombres definitivos de VEXEN. Los aliases antiguos se aceptan durante
+    # la transición para que un deploy no se rompa antes de actualizar Railway.
+    verification_integration: str = Field(
+        default="postgres",
+        validation_alias=AliasChoices(
+            "VEXEN_VERIFICATION_INTEGRATION",
+            "VERIFICATION_INTEGRATION",
+            "verification_integration",
+        ),
+    )
+    vexen_verification_schema: str = Field(
+        default="vexen_verification",
+        validation_alias=AliasChoices(
+            "VEXEN_VERIFICATION_SCHEMA",
+            "VEXMOD_ROLES_SCHEMA",
+            "vexen_verification_schema",
+            "vexmod_roles_schema",
+        ),
+    )
 
     sync_commands: bool = True
     log_level: str = "INFO"
@@ -29,21 +46,29 @@ class Settings(BaseSettings):
     @field_validator("guild_id", "owner_id", mode="before")
     @classmethod
     def parse_optional_positive_id(
-        cls, value: object, info: ValidationInfo
+        cls,
+        value: object,
+        info: ValidationInfo,
     ) -> int | None:
         if value is None or value == "":
             return None
         try:
             parsed = int(value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
-            log.warning("%s inválido; se tratará como no configurado.", info.field_name.upper())
+            log.warning(
+                "%s inválido; se tratará como no configurado.",
+                info.field_name.upper(),
+            )
             return None
         if parsed <= 0:
-            log.warning("%s inválido; se tratará como no configurado.", info.field_name.upper())
+            log.warning(
+                "%s inválido; se tratará como no configurado.",
+                info.field_name.upper(),
+            )
             return None
         return parsed
 
-    @field_validator("society_db_schema", "vexmod_roles_schema")
+    @field_validator("society_db_schema", "vexen_verification_schema")
     @classmethod
     def validate_schema_name(cls, value: str) -> str:
         value = value.strip()
@@ -56,7 +81,9 @@ class Settings(BaseSettings):
     def validate_verification_integration(cls, value: str) -> str:
         value = value.strip().lower()
         if value not in {"postgres", "disabled"}:
-            raise ValueError("VERIFICATION_INTEGRATION debe ser 'postgres' o 'disabled'.")
+            raise ValueError(
+                "VEXEN_VERIFICATION_INTEGRATION debe ser 'postgres' o 'disabled'."
+            )
         return value
 
     @field_validator("log_level")
@@ -87,11 +114,20 @@ class Settings(BaseSettings):
     def development_mode(self) -> bool:
         return self.society_db_schema.endswith("_dev")
 
+    @property
+    def vexmod_roles_schema(self) -> str:
+        """Alias temporal de solo lectura para extensiones antiguas.
+
+        El runtime nuevo debe usar `vexen_verification_schema`.
+        """
+        return self.vexen_verification_schema
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        populate_by_name=True,
     )
 
 
