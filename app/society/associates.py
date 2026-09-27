@@ -10,6 +10,7 @@ from app.bot.checks import (
     require_admin,
 )
 from app.config.settings import Settings
+from app.society.command_surface import simplify_commands
 from app.society.button_config import (
     community_button_style_label,
     normalize_community_button_style,
@@ -72,6 +73,7 @@ class SocietyCog(commands.Cog):
     ) -> None:
         self.bot = bot
         self.settings = settings
+        simplify_commands(self.society)
 
     society = app_commands.Group(
         name="society",
@@ -132,109 +134,32 @@ class SocietyCog(commands.Cog):
             self.bot.db,
         )
 
-    @society.command(
-        name="help",
-        description="Muestra la guía de comandos de VEXEN Society",
-    )
-    async def society_help(
-        self,
-        interaction: discord.Interaction,
-    ) -> None:
-        if not await guild_is_authorized(
-            interaction,
-            self.settings,
-        ):
-            await interaction.response.send_message(
-                "❌ Este servidor no está autorizado.",
-                ephemeral=True,
-            )
+    def _dashboard_view(self) -> discord.ui.View:
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(label="Abrir VEXEN Society", url=self.settings.dashboard_url))
+        return view
+
+    @society.command(name="help", description="Guía de acciones rápidas y enlace al Dashboard")
+    async def society_help(self, interaction: discord.Interaction) -> None:
+        if not await guild_is_authorized(interaction, self.settings):
+            await interaction.response.send_message("❌ Este servidor no está autorizado.", ephemeral=True)
             return
+        embed = discord.Embed(title="VEXEN Society • Acciones rápidas", color=discord.Color.blurple(),
+            description="La configuración de plantillas, permisos, canales, incorporación y redes se administra desde el Dashboard.")
+        embed.add_field(name="Consultas", value="`/society panel` · `/society estado` (Admin) · `/society miembros`", inline=False)
+        embed.add_field(name="Asociados · Admin", value="`/society asociado agregar` · `listar` · `info` · `eliminar`\nLa eliminación conserva su confirmación de seguridad.", inline=False)
+        embed.add_field(name="Staff y bienvenida", value="`/society staff agregar` · `quitar` · `listar`\n`/society bienvenida reenviar` (Admin). Se conservan los permisos de cada acción.", inline=False)
+        embed.set_footer(text="VEXEN • SOCIETY")
+        await interaction.response.send_message(embed=embed, view=self._dashboard_view(), ephemeral=True)
 
-        embed = discord.Embed(
-            title="📘 VEXEN Society • Guía de comandos",
-            description=(
-                "Guía rápida de las funciones disponibles. "
-                "Los comandos marcados como **Admin** requieren OWNER "
-                "o un rol autorizado de Society."
-            ),
-            color=discord.Color.blurple(),
-        )
-
-        embed.add_field(
-            name="👥 Asociados • Admin",
-            value=(
-                "`/society asociado agregar` — registrar y crear una Society\n"
-                "`/society asociado listar` — ver asociados registrados\n"
-                "`/society asociado info` — consultar una Society\n"
-                "`/society asociado eliminar` — eliminación segura"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🎉 Bienvenidas • Admin",
-            value=(
-                "`/society bienvenida reenviar` — republicar la bienvenida de un asociado"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="⚙️ Comunidad",
-            value=(
-                "`/society administrar` — panel de tu Society\n"
-                "`/society miembros` — listar miembros de la comunidad\n"
-                "`/society staff agregar` — agregar Staff\n"
-                "`/society staff quitar` — retirar Staff\n"
-                "`/society staff listar` — listar Staff"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🧩 Plantillas • Admin",
-            value=(
-                "`/society plantilla ver` — ver plantilla activa\n"
-                "`/society plantilla cargar` — validar y activar TXT\n"
-                "`/society plantilla descargar` — descargar plantilla\n"
-                "`/society plantilla historial` — ver versiones"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🛠️ Configuración • Admin",
-            value=(
-                "`/society config anuncios` — canal global de anuncios\n"
-                "`/society config categoria_base` — inicio del bloque { VXS }\n"
-                "`/society config canal_bienvenida` — canal de bienvenidas\n"
-                "`/society config incorporacion` — pregunta de asociados en Onboarding\n"
-                "`/society config color_bienvenida` — color HEX del embed\n"
-                "`/society config estilo_boton_bienvenida` — estilo del botón de bienvenida\n"
-                "`/society config estilo_boton_anuncios` — estilo del botón de anuncios\n"
-                "`/society config estado` — estado técnico"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🔐 Acceso • OWNER",
-            value=(
-                "`/society acceso rol_agregar` — autorizar un rol\n"
-                "`/society acceso rol_quitar` — retirar autorización\n"
-                "`/society acceso listar` — ver roles autorizados"
-            ),
-            inline=False,
-        )
-
-        embed.set_footer(
-            text="VEXEN • SOCIETY"
-        )
-
-        await interaction.response.send_message(
-            embed=embed,
-            ephemeral=True,
-        )
+    @society.command(name="panel", description="Abre el Dashboard de VEXEN Society")
+    async def society_panel(self, interaction: discord.Interaction) -> None:
+        if not await guild_is_authorized(interaction, self.settings):
+            await interaction.response.send_message("❌ Este servidor no está autorizado.", ephemeral=True)
+            return
+        embed = discord.Embed(title="VEXEN Society", color=discord.Color.blurple(),
+            description="Administra tu Society desde el panel web. Inicia sesión con Discord; el panel comprobará tus permisos.")
+        await interaction.response.send_message(embed=embed, view=self._dashboard_view(), ephemeral=True)
 
     @bienvenida.command(
         name="reenviar",
@@ -1832,7 +1757,7 @@ class SocietyCog(commands.Cog):
             ephemeral=True,
         )
 
-    @config.command(
+    @society.command(
         name="estado",
         description=(
             "Muestra el estado técnico de Society"

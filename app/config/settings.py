@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from urllib.parse import urlsplit
 from functools import lru_cache
 
 from pydantic import AliasChoices, Field, ValidationInfo, field_validator
@@ -40,8 +41,17 @@ class Settings(BaseSettings):
         ),
     )
 
+    dashboard_url: str = "https://society.vexen.one"
     sync_commands: bool = True
     log_level: str = "INFO"
+
+    @field_validator("dashboard_url")
+    @classmethod
+    def validate_dashboard_url(cls, value: str) -> str:
+        parsed = urlsplit(value.strip())
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("DASHBOARD_URL debe ser una URL HTTPS sin credenciales.")
+        return value.strip().rstrip("/")
 
     @field_validator("guild_id", "owner_id", mode="before")
     @classmethod

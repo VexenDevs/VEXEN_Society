@@ -141,7 +141,7 @@ class SocietyLogService:
 
     async def setup(self, society_cog) -> None:
         await self._ensure_schema()
-        self.register_commands(society_cog)
+        # Configuration lives in Dashboard; keep the log delivery service, not its slash controls.
 
     async def _ensure_schema(self) -> None:
         s = self.schema

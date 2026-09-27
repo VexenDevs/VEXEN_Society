@@ -15,6 +15,7 @@ from app.society.announcements import (
     restore_announcement_role_views,
 )
 from app.society.associates import SocietyCog
+from app.society.command_surface import simplify_commands
 from app.society.logs import SocietyLogService
 from app.society.space_service_v110 import VexenSpaceService
 from app.society.templates import ensure_default_template
@@ -87,6 +88,8 @@ class VexenSocietyBot(commands.Bot):
 
         society_cog = SocietyCog(self, self.settings)
         await self.society_log_service.setup(society_cog)
+        # Logs retain their service, but never re-expose configuration slash commands.
+        simplify_commands(society_cog.society)
         await self.add_cog(society_cog)
         await self.add_cog(AnnouncementsCog(self, self.settings))
         self.society_log_service.start()

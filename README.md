@@ -1,3 +1,11 @@
+# VEXEN Society Bot v1.11.0
+
+Actualización entregada sobre el handoff del 20-09-2026. Consulta `docs/RELEASE.md` y los documentos de configuración. No se ha desplegado desde esta entrega.
+
+---
+
+## Referencia histórica conservada
+
 # VEXEN Society
 
 Bot privado para administrar espacios de comunidades y creadores dentro de VEXEN.
